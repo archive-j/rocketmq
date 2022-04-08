@@ -115,12 +115,9 @@
         <module>remoting</module>
         <module>srvutil</module>
         <module>filter</module>
-        <module>test</module>
-        <module>distribution</module>
         <module>openmessaging</module>
         <module>logging</module>
         <module>acl</module>
-        <module>example</module>
     </modules>
 
     <build>
