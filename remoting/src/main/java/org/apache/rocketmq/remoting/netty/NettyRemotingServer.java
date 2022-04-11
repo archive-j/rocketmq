@@ -64,6 +64,11 @@ import org.apache.rocketmq.remoting.exception.RemotingTimeoutException;
 import org.apache.rocketmq.remoting.exception.RemotingTooMuchRequestException;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 
+/**
+ * 远程调用服务端-使用netty实现的. 其中协议的解析依靠NettyDecoder org.apache.rocketmq.remoting.netty.NettyDecoder
+ * ---->由nettyDecoder解析出tcp数据中关于rocketmq 的RocketmqCommand 。这个RocketMqCommand 才是重点关键!!!
+ * 所以对于这一部分NettyRemotingServer 和业务无关.
+ */
 public class NettyRemotingServer extends NettyRemotingAbstract implements RemotingServer {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(RemotingHelper.ROCKETMQ_REMOTING);
     private final ServerBootstrap serverBootstrap;
@@ -193,7 +198,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                     return new Thread(r, "NettyServerCodecThread_" + this.threadIndex.incrementAndGet());
                 }
             });
-
+        // 将一些 共用的可以作为共享变量
         prepareSharableHandlers();
 
         ServerBootstrap childHandler =
@@ -208,6 +213,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                     @Override
                     public void initChannel(SocketChannel ch) throws Exception {
                         ch.pipeline()
+                                // 握手数据--- 这一步不喝下方一样使用 ... 多参数形式, 是为了有一个 handShake的名称
                             .addLast(defaultEventExecutorGroup, HANDSHAKE_HANDLER_NAME, handshakeHandler)
                             .addLast(defaultEventExecutorGroup,
                                 encoder,

@@ -50,13 +50,23 @@ import org.apache.rocketmq.common.protocol.route.TopicRouteData;
 import org.apache.rocketmq.common.sysflag.TopicSysFlag;
 import org.apache.rocketmq.remoting.common.RemotingUtil;
 
+/**
+ * rocketmq 路由信息.管理器.重要
+ * 内容主要为===>当前的数据节点信息====>
+ * 当前的
+ */
 public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
+    // 读写锁.
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    // topic队列表
     private final HashMap<String/* topic */, Map<String /* brokerName */ , QueueData>> topicQueueTable;
+    // broker地址表
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
+    //
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
+    // 在线的数据节点列表. ？为啥不是concurrentHashMap
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
@@ -104,6 +114,7 @@ public class RouteInfoManager {
         return topicList;
     }
 
+    // 一个数据节点往 元数据服务注册 * 重点
     public RegisterBrokerResult registerBroker(
             final String clusterName,
             final String brokerAddr,
@@ -118,6 +129,7 @@ public class RouteInfoManager {
             try {
                 this.lock.writeLock().lockInterruptibly();
 
+                // 添加集群地址表----->namerser
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
                 if (null == brokerNames) {
                     brokerNames = new HashSet<String>();
@@ -127,6 +139,7 @@ public class RouteInfoManager {
 
                 boolean registerFirst = false;
 
+                // 添加数据存储地址表-broker
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null == brokerData) {
                     registerFirst = true;
@@ -167,6 +180,7 @@ public class RouteInfoManager {
                     }
                 }
 
+                // 数据节点存货表---->第一次添加的认为是存货的. 后续开启的定时任务会校验 lastime查看是否断连了. 超时时间暂定 2分钟 1000*60*2
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr,
                         new BrokerLiveInfo(
                                 System.currentTimeMillis(),
@@ -440,8 +454,10 @@ public class RouteInfoManager {
 
     public int scanNotActiveBroker() {
         int removeCount = 0;
+        // 在线的broker 表
         Iterator<Entry<String, BrokerLiveInfo>> it = this.brokerLiveTable.entrySet().iterator();
         while (it.hasNext()) {
+            // broker 没有进行通信. 是否需要进行下线操作。 这个时间为 2分钟内没有交互。
             Entry<String, BrokerLiveInfo> next = it.next();
             long last = next.getValue().getLastUpdateTimestamp();
             if ((last + BROKER_CHANNEL_EXPIRED_TIME) < System.currentTimeMillis()) {
@@ -717,6 +733,7 @@ public class RouteInfoManager {
     }
 }
 
+// 数据节点存货信息, 个人更想称之为 数据节点在线信息
 class BrokerLiveInfo {
     private long lastUpdateTimestamp;
     private DataVersion dataVersion;

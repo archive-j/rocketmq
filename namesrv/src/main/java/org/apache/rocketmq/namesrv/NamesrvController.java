@@ -48,6 +48,7 @@ public class NamesrvController {
 
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl(
         "NSScheduledThread"));
+    // 不是很清楚 kvConfig是用作什么样子
     private final KVConfigManager kvConfigManager;
     private final RouteInfoManager routeInfoManager;
 
@@ -74,7 +75,7 @@ public class NamesrvController {
     }
 
     public boolean initialize() {
-
+        // 从配置文件中加载部分配置信息
         this.kvConfigManager.load();
 
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);

@@ -62,6 +62,10 @@ import org.apache.rocketmq.remoting.netty.AsyncNettyRequestProcessor;
 import org.apache.rocketmq.remoting.netty.NettyRequestProcessor;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 
+/**
+ * 请求处理器. 这部分属于将netty解码后的数据 按照request code/path 分别扔给对应的处理方法.
+ * 其中 真实的处理方法处于 NameSrcController中的. 关键点在于 routerInfoManager 和 kvConfigManager 这两部分处理
+ */
 public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implements NettyRequestProcessor {
     private static InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
 
@@ -82,16 +86,21 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
                 request);
         }
 
-
+        // 解析出的协议数据. 对应响应的处理器
         switch (request.getCode()) {
             case RequestCode.PUT_KV_CONFIG:
+                // 添加到kv库
                 return this.putKVConfig(ctx, request);
             case RequestCode.GET_KV_CONFIG:
+                // 查询kv库
                 return this.getKVConfig(ctx, request);
             case RequestCode.DELETE_KV_CONFIG:
+                // 删除kv库
                 return this.deleteKVConfig(ctx, request);
             case RequestCode.QUERY_DATA_VERSION:
+                // 查询topic配置.?
                 return queryBrokerTopicConfig(ctx, request);
+                // 这个一般是broker链接后使用的.
             case RequestCode.REGISTER_BROKER:
                 Version brokerVersion = MQVersion.value2Version(request.getVersion());
                 if (brokerVersion.ordinal() >= MQVersion.Version.V3_0_11.ordinal()) {
@@ -99,20 +108,26 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
                 } else {
                     return this.registerBroker(ctx, request);
                 }
+                // 下线broker
             case RequestCode.UNREGISTER_BROKER:
                 return this.unregisterBroker(ctx, request);
+                // 获取topic下的路由信息
             case RequestCode.GET_ROUTEINFO_BY_TOPIC:
                 return this.getRouteInfoByTopic(ctx, request);
+                // broker集群信息
             case RequestCode.GET_BROKER_CLUSTER_INFO:
                 return this.getBrokerClusterInfo(ctx, request);
             case RequestCode.WIPE_WRITE_PERM_OF_BROKER:
                 return this.wipeWritePermOfBroker(ctx, request);
             case RequestCode.ADD_WRITE_PERM_OF_BROKER:
                 return this.addWritePermOfBroker(ctx, request);
+                // 从nameser中获取所有的topic信息
             case RequestCode.GET_ALL_TOPIC_LIST_FROM_NAMESERVER:
                 return getAllTopicListFromNameserver(ctx, request);
+                // 从nameser中删除topic
             case RequestCode.DELETE_TOPIC_IN_NAMESRV:
                 return deleteTopicInNamesrv(ctx, request);
+                // 获取？？？
             case RequestCode.GET_KVLIST_BY_NAMESPACE:
                 return this.getKVListByNamespace(ctx, request);
             case RequestCode.GET_TOPICS_BY_CLUSTER:
@@ -286,6 +301,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
         return response;
     }
 
+    // 注册数据节点
     public RemotingCommand registerBroker(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(RegisterBrokerResponseHeader.class);
@@ -293,12 +309,14 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
         final RegisterBrokerRequestHeader requestHeader =
             (RegisterBrokerRequestHeader) request.decodeCommandCustomHeader(RegisterBrokerRequestHeader.class);
 
+        // 校验和, 这一步还是属于protocol解析
         if (!checksum(ctx, request, requestHeader)) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("crc32 not match");
             return response;
         }
 
+        // 从request中解析出 topic信息
         TopicConfigSerializeWrapper topicConfigWrapper;
         if (request.getBody() != null) {
             topicConfigWrapper = TopicConfigSerializeWrapper.decode(request.getBody(), TopicConfigSerializeWrapper.class);
@@ -308,6 +326,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             topicConfigWrapper.getDataVersion().setTimestamp(0);
         }
 
+        // 注册broker 到路由管理中
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),
@@ -321,7 +340,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
 
         responseHeader.setHaServerAddr(result.getHaServerAddr());
         responseHeader.setMasterAddr(result.getMasterAddr());
-
+        // 注册完成后.需要获取所有的topic配置？？？？
         byte[] jsonValue = this.namesrvController.getKvConfigManager().getKVListByNamespace(NamesrvUtil.NAMESPACE_ORDER_TOPIC_CONFIG);
         response.setBody(jsonValue);
         response.setCode(ResponseCode.SUCCESS);
