@@ -217,6 +217,7 @@ public class MappedFileQueue {
     }
 
     protected MappedFile tryCreateMappedFile(long createOffset) {
+        // 创建mapped映射文件. 这个地方是按照 物理地址偏移量使用的. 一次性创建两个文件？？？这个是什么操作？为了安全？
         String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
         String nextNextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset
                 + this.mappedFileSize);
@@ -225,7 +226,8 @@ public class MappedFileQueue {
 
     protected MappedFile doCreateMappedFile(String nextFilePath, String nextNextFilePath) {
         MappedFile mappedFile = null;
-
+        // 如果存在 分配mapped的额外服务, 则将创建任务外置. =====》 此处的写法 猜测是补丁的作用. 不修改mappedFileQueue创建file的业务, 做一个额外功能!!!!!
+        // 原始的版本就是 下方的直接创建了  mappedFile = new MappedFile(nextFilePath, this.mappedFileSize);
         if (this.allocateMappedFileService != null) {
             mappedFile = this.allocateMappedFileService.putRequestAndReturnMappedFile(nextFilePath,
                     nextNextFilePath, this.mappedFileSize);

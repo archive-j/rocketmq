@@ -735,6 +735,7 @@ public class CommitLog {
         });
     }
 
+    //存储消息. 这个是存储引擎保存数据的重要步骤
     public CompletableFuture<PutMessageResult> asyncPutMessages(final MessageExtBatch messageExtBatch) {
         messageExtBatch.setStoreTimestamp(System.currentTimeMillis());
         AppendMessageResult result;
@@ -780,7 +781,10 @@ public class CommitLog {
             // global
             messageExtBatch.setStoreTimestamp(beginLockTimestamp);
 
+            // 如果当前的mappedfile是没有的. 那么新的文件mappedfile需要从0开始
+            // 但是 会存在删除长时间没有使用的mappedfile,这些数据 因为长时间没有操作更新,而被判定为过期文件,所以如果都从0开始也不明智,那么就需要从lastmappedfile中获取了
             if (null == mappedFile || mappedFile.isFull()) {
+                // 获取新的一块映射文件的内存信息. 该mappedFile将用于保存此次 提交的数据 重要.这个方法会在底部创建一个mappedFiled，如果没有的情况下
                 mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
             }
             if (null == mappedFile) {
@@ -831,7 +835,9 @@ public class CommitLog {
         storeStatsService.getSinglePutMessageTopicTimesTotal(messageExtBatch.getTopic()).add(result.getMsgNum());
         storeStatsService.getSinglePutMessageTopicSizeTotal(messageExtBatch.getTopic()).add(result.getWroteBytes());
 
+        // 提交刷盘请求, 在内部区分如果是同步刷盘需要等待,如果是异步刷盘直接返回。
         CompletableFuture<PutMessageStatus> flushOKFuture = submitFlushRequest(result, messageExtBatch);
+        // 提交主从副本提交的结果====>涉及  高可用 HA
         CompletableFuture<PutMessageStatus> replicaOKFuture = submitReplicaRequest(result, messageExtBatch);
         return flushOKFuture.thenCombine(replicaOKFuture, (flushStatus, replicaStatus) -> {
             if (flushStatus != PutMessageStatus.PUT_OK) {
@@ -845,8 +851,15 @@ public class CommitLog {
 
     }
 
+    /**
+     * 提交数据持久化
+     * @param result
+     * @param messageExt
+     * @return
+     */
     public CompletableFuture<PutMessageStatus> submitFlushRequest(AppendMessageResult result, MessageExt messageExt) {
         // Synchronization flush
+        // 同步刷盘方法
         if (FlushDiskType.SYNC_FLUSH == this.defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
             final GroupCommitService service = (GroupCommitService) this.flushCommitLogService;
             if (messageExt.isWaitStoreMsgOK()) {
@@ -862,6 +875,7 @@ public class CommitLog {
         }
         // Asynchronous flush
         else {
+            // 没有开启持久化到 堆外内存的 的情况下.直接刷盘.
             if (!this.defaultMessageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
                 flushCommitLogService.wakeup();
             } else  {
@@ -1006,6 +1020,9 @@ public class CommitLog {
         protected static final int RETRY_TIMES_OVER = 10;
     }
 
+
+
+    // 实时对commitlog 进行提交.
     class CommitRealTimeService extends FlushCommitLogService {
 
         private long lastCommitTimestamp = 0;
@@ -1033,6 +1050,7 @@ public class CommitLog {
                 }
 
                 try {
+                    // 先提交到 堆外内存？？？？mappedFileQueue 本身就存在的啊
                     boolean result = CommitLog.this.mappedFileQueue.commit(commitDataLeastPages);
                     long end = System.currentTimeMillis();
                     if (!result) {

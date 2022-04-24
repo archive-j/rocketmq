@@ -57,7 +57,9 @@ public class AllocateMappedFileService extends ServiceThread {
             }
         }
 
+        // 将创建mapped file 的参数 设置为 分配请求对象.
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
+        // 避免并发创建=====>借助外力的,如果已经存在了的话,就直接获取了.不需要额外创建。！！！！！ 但是这个地方没有保证的是 如果因为并发问题 提交错误了呢？？？这个重试操作怎么修复
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
         if (nextPutOK) {
@@ -94,8 +96,11 @@ public class AllocateMappedFileService extends ServiceThread {
             return null;
         }
 
+        // 创建完成后就开始使用-======>这个地方的补救措施就弥补了上方 因为 put失败 还继续使用nextReq 的错误了 好办法
         AllocateRequest result = this.requestTable.get(nextFilePath);
         try {
+            // 这个地方的等待是因为. 创建mmap文件是耗时的操作.=====>屁. 其实是因为这个步骤是依靠 一个专门的线程去处理所有的开mapped内存的操作 具体参考 `org.apache.rocketmq.store.AllocateMappedFileService.mmapOperation`
+            //
             if (result != null) {
                 boolean waitOK = result.getCountDownLatch().await(waitTimeOut, TimeUnit.MILLISECONDS);
                 if (!waitOK) {
@@ -147,6 +152,7 @@ public class AllocateMappedFileService extends ServiceThread {
         boolean isSuccess = false;
         AllocateRequest req = null;
         try {
+            // 从创建mapped文件请求中 提取出来. 逐个开始创建 mappedFile文件.
             req = this.requestQueue.take();
             AllocateRequest expectedRequest = this.requestTable.get(req.getFilePath());
             if (null == expectedRequest) {
@@ -166,9 +172,11 @@ public class AllocateMappedFileService extends ServiceThread {
                 MappedFile mappedFile;
                 if (messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
                     try {
+                        // 此处一般可以忽略. 默认情况下是不会使用 自定义的mappedfile的方式进行内存分配.
                         mappedFile = ServiceLoader.load(MappedFile.class).iterator().next();
                         mappedFile.init(req.getFilePath(), req.getFileSize(), messageStore.getTransientStorePool());
                     } catch (RuntimeException e) {
+                        // 默认的mmapedFile写法.
                         log.warn("Use default implementation.");
                         mappedFile = new MappedFile(req.getFilePath(), req.getFileSize(), messageStore.getTransientStorePool());
                     }
@@ -211,6 +219,7 @@ public class AllocateMappedFileService extends ServiceThread {
                 }
             }
         } finally {
+            // 创建完成后. 就通知请求的那个线程!!!
             if (req != null && isSuccess)
                 req.getCountDownLatch().countDown();
         }
