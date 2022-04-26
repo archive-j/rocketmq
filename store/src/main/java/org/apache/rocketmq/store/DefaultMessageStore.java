@@ -2034,24 +2034,53 @@ public class DefaultMessageStore implements MessageStore {
             return this.reputFromOffset < DefaultMessageStore.this.commitLog.getMaxOffset();
         }
 
+        // 重放数据思路
+        //  1.  当前重放游标 reputFromOffset
+        //  2.  当前commitLog 数据其实游标 commitLog.minOffset(startOffset)
+        //  3.  当前commitLog 数据 commitLog.maxOffset(endOffset)
+        //   reput  min        max
+        //    ↓     ↓           ↓
+        //    0 1 2 3 4 5 6 7 8 9   mappedFileQueue
+        // 当发现 reput小于min时表示, 表示当前这个定时器已经经过很久才重新启动,需要修补reput指向min时,才能确保逻辑偏移量正确. 重放数据可能不再是针对该commitLog了？？？ 这个其实存疑, 因为commitLog 中的游标是一致往前递进的
+        // 在按照reput获取到对应游标后, reput游标递进往前增, 前进步伐按照数据size决定
+        //// 这里面就需要插一句了. commitLog内的数据不是按照固定长度进行的. 下一条消息的起始地址由 currentOffset+currentSize决定. 所以reput的下一个数据地址也同样由size决定
+        // 在执行了一个mappedFile完成之后之后, 游标将移到下一个mappedFile中.
+        // 上述画图中的0,1,2,3,4 对中间的commitLog消息展示可能不太直观,将数据放大后查看
+        //
+        //  mapped_1   |  mapped_2       |  mapped_3 |
+        //                        reputOffset
+        //             |               ↓ |           |
+        //          0 1| 2 3 4 5 6 7 8 9 |10 11 12 13| 14
+        //             |                 |           |
+        //
+        //   在这个场景下. reputOffset 的是 mapped_2中的消息数据,其中因为9号数据是不正确的. totalSize不正确, 为了保持流程完整, 将跳过这个消息.
+        //   跳过的消息不在以 dispatchRequest中描述的size. 因为这个结果已经不正确了. 还是按照这个size进行偏移, 那么会影响到`10`号数据的读取,那么就需要在内部进行偏移处理.得到下一个有效的偏移量了
         private void doReput() {
+            /// 当前重新放入的游标 较小. 这个是因为当前commitLog 提交的数据过期了？？？？没太理解这个
             if (this.reputFromOffset < DefaultMessageStore.this.commitLog.getMinOffset()) {
                 log.warn("The reputFromOffset={} is smaller than minPyOffset={}, this usually indicate that the dispatch behind too much and the commitlog has expired.",
                     this.reputFromOffset, DefaultMessageStore.this.commitLog.getMinOffset());
                 this.reputFromOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             }
+            // 只要commitlog 还有数据和重放没有处理完就需要进行处理. 经最大可能(重放游标 小于commitLog中的最大游标)
             for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
 
                 if (DefaultMessageStore.this.getMessageStoreConfig().isDuplicationEnable()
                     && this.reputFromOffset >= DefaultMessageStore.this.getConfirmOffset()) {
                     break;
                 }
-
+                // 获取offset对应的mapped文件 从mappedQueue中.
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
                 if (result != null) {
                     try {
+                        // 这个操作在第一次执行的时候意义比较大. 这个的说法是 最重复的游标进行起始步骤的变更.
+                        // 这样就算后续 reputFrom执行到之间因为 增加size的方式被修改了. 然后出现了问题.也能将整个commitLog重新提交.类似事物
                         this.reputFromOffset = result.getStartOffset();
-
+                        // 读取mapped文, 至于怎么读, 以及从哪里读 需要 获得的result中的 byteBuffer确定了.
+                        // 在使用byteBuffer时. 会按照mapped中对于 commitLog的格式读取. 封装好 DispatchRequest. 这个request内. 含有这一条消息commit的size大小
+                        //   在 commitLog中 这个大小就是totalSize
+                        //   在读取commit的过程中. 可能会因为 commitLog中的数据自身是不完善的, 是错误格式的(错误包含 crc校验不通过,或者这条消息标记为空白等), 此时重放流程reput还是需要继续进行下去. 那么只能是说. 主动跳过这个数据
+                        //// 补充说明, 因为readSize和totalSize对不上的情况. 也就是不处理该消息了. 但是流程还是需要继续, 那么size还是需要跳过这个数据,那么就可能出现在 当前mapped处理完成后, 重新从mappedQueue中拿到的 offset大于reputFromOffset这个
                         for (int readSize = 0; readSize < result.getSize() && doNext; ) {
                             // 将生产者提交的消息 .重新规整一下封装成 dispatch使用的 消息
                             DispatchRequest dispatchRequest =
@@ -2060,9 +2089,10 @@ public class DefaultMessageStore implements MessageStore {
 
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
-                                    // 将消息重发出去.
+                                    // 将已经存储在commitLog中的消息重发出去.
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
 
+                                    // 这个是针对 主从模式附加的功能, 非重放主逻辑,等待看到主从的时候再回头看这个 TODO Jonah ON 2022-04-26 created
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
                                             && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()
                                             && DefaultMessageStore.this.messageArrivingListener != null) {
@@ -2075,6 +2105,7 @@ public class DefaultMessageStore implements MessageStore {
 
                                     this.reputFromOffset += size;
                                     readSize += size;
+                                    // 这个是针对 主从模式附加的功能, 非重放主逻辑,等待看到主从的时候再回头看这个 TODO Jonah ON 2022-04-26 created
                                     if (DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
                                         DefaultMessageStore.this.storeStatsService
                                             .getSinglePutMessageTopicTimesTotal(dispatchRequest.getTopic()).add(1);
