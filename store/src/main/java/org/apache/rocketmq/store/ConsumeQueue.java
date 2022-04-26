@@ -380,6 +380,10 @@ public class ConsumeQueue {
         return this.minLogicOffset / CQ_STORE_UNIT_SIZE;
     }
 
+    /**
+     * 对consumeQueue进行增强处理. 除却consumerQueue基础 用于查找 topic 对应的消息 tag.
+     * 额外维护了一份增强的数据 用于存储 tag信息,消息入库时间,bitmap过滤信息. 这些都是额外的
+     */
     public void putMessagePositionInfoWrapper(DispatchRequest request, boolean multiQueue) {
         final int maxRetries = 30;
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
@@ -476,6 +480,7 @@ public class ConsumeQueue {
         }
     }
 
+    // 构建真实的consumerQueue 作为topic 和消息的查找.
     private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
         final long cqOffset) {
 

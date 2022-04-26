@@ -1651,6 +1651,10 @@ public class DefaultMessageStore implements MessageStore {
             switch (tranType) {
                 case MessageSysFlag.TRANSACTION_NOT_TYPE:
                 case MessageSysFlag.TRANSACTION_COMMIT_TYPE:
+                    // 构建consumerQueue,consumerQueue是按照topic为k,存储在consumeQueueTable中的.
+                    // consumerQueue中存储的数据包含, 消息offset,消息大小,以及tagCode,目前tagCode为消息的hash?md5比较合适吧。
+                    // 至于为什么是tagCode,而不是直接称呼为tagMd5,可能是因为在早期,tag数据是可以按照 1,2,3这样的需要,或者是 uuid这样的存储的.
+                    // 但是为了读写方便?不逊要考虑读取的长度问题,统一使用一个定长字符串表示了, 这个定长字符串也就是之前说的 md5.
                     DefaultMessageStore.this.putMessagePositionInfo(request);
                     break;
                 case MessageSysFlag.TRANSACTION_PREPARED_TYPE:
