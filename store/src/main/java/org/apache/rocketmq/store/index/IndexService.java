@@ -157,6 +157,7 @@ public class IndexService {
     public QueryOffsetResult queryOffset(String topic, String key, int maxNum, long begin, long end) {
         List<Long> phyOffsets = new ArrayList<Long>(maxNum);
 
+
         long indexLastUpdateTimestamp = 0;
         long indexLastUpdatePhyoffset = 0;
         maxNum = Math.min(maxNum, this.defaultMessageStore.getMessageStoreConfig().getMaxMsgsNumBatch());
@@ -198,7 +199,10 @@ public class IndexService {
         return topic + "#" + key;
     }
 
+    // 构建索引. 根据用户提交的消息
     public void buildIndex(DispatchRequest req) {
+        // 获取或者创建一个索引文件. 原则上 索引文件一定会创建成功.
+        // 索引文件本质上也是使用mappedFile的方式 记录消息
         IndexFile indexFile = retryGetAndCreateIndexFile();
         if (indexFile != null) {
             long endPhyOffset = indexFile.getEndPhyOffset();
@@ -245,6 +249,8 @@ public class IndexService {
         }
     }
 
+    // 不断地尝试将msg和key进行绑定到index文件中。不怕写入失败. 写入失败后继续尝试。没有尝试上限。
+    // 如果在尝试写的过程中发现该文件已经写满了. 则重新获取一份新的去写。循环往复.
     private IndexFile putKey(IndexFile indexFile, DispatchRequest msg, String idxKey) {
         for (boolean ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp()); !ok; ) {
             log.warn("Index file [" + indexFile.getFileName() + "] is full, trying to create another one");
@@ -299,9 +305,12 @@ public class IndexService {
             this.readWriteLock.readLock().lock();
             if (!this.indexFileList.isEmpty()) {
                 IndexFile tmp = this.indexFileList.get(this.indexFileList.size() - 1);
+                // 找到索引文件了. 小看一下这个文件是否已经写满了. 写满了需要另外处理.
                 if (!tmp.isWriteFull()) {
                     indexFile = tmp;
                 } else {
+                    // 如果文件已经写满了. 需要新创建一个索引文件,当前查找到的索引文件设置为 前置索引.
+                    // 那么疑问就来了. rocketmq的索引文件查找方式, 存储方式是怎么样的呢？ 单纯地从 前指针的方式. 看的话是一个单链表. 这样的方式查找也不是很好吧。。。。
                     lastUpdateEndPhyOffset = tmp.getEndPhyOffset();
                     lastUpdateIndexTimestamp = tmp.getEndTimestamp();
                     prevIndexFile = tmp;
@@ -311,6 +320,7 @@ public class IndexService {
             this.readWriteLock.readLock().unlock();
         }
 
+        // 索引文件还是没有找到的时候.新创建一个索引文件。
         if (indexFile == null) {
             try {
                 String fileName =
