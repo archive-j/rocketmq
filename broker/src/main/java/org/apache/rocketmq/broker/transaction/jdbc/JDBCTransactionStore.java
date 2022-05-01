@@ -34,6 +34,7 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+// 在rocketmq3.6.x 版本中就已经存在这一块的数据了,这一块是有历史原因的,在
 public class JDBCTransactionStore implements TransactionStore {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.TRANSACTION_LOGGER_NAME);
     private final JDBCTransactionStoreConfig jdbcTransactionStoreConfig;

@@ -249,6 +249,7 @@ public class BrokerController {
 
         if (result) {
             try {
+                // 创建默认的消息存储引擎
                 this.messageStore =
                     new DefaultMessageStore(this.messageStoreConfig, this.brokerStatsManager, this.messageArrivingListener,
                         this.brokerConfig);
@@ -258,6 +259,7 @@ public class BrokerController {
                 }
                 this.brokerStats = new BrokerStats((DefaultMessageStore) this.messageStore);
                 //load plugin
+                // 如果当前broker[已经]配置了 messageStorePlugin 则使用插件对应的 存储引擎.
                 MessageStorePluginContext context = new MessageStorePluginContext(messageStoreConfig, brokerStatsManager, messageArrivingListener, brokerConfig);
                 this.messageStore = MessageStoreFactory.build(context, this.messageStore);
                 this.messageStore.getDispatcherList().addFirst(new CommitLogDispatcherCalcBitMap(this.brokerConfig, this.consumerFilterManager));
@@ -477,6 +479,7 @@ public class BrokerController {
         return result;
     }
 
+    // 事物相关
     private void initialTransaction() {
         this.transactionalMessageService = ServiceProvider.loadClass(ServiceProvider.TRANSACTION_SERVICE_ID, TransactionalMessageService.class);
         if (null == this.transactionalMessageService) {
@@ -492,6 +495,7 @@ public class BrokerController {
         this.transactionalMessageCheckService = new TransactionalMessageCheckService(this);
     }
 
+    // 权限相关
     private void initialAcl() {
         if (!this.brokerConfig.isAclEnable()) {
             log.info("The broker dose not enable acl");
@@ -534,6 +538,7 @@ public class BrokerController {
         }
     }
 
+    // 注册命令处理器。rocketmq 使用的是netty .自定义了一部分数据协议。此协议需要参考 remoting
     public void registerProcessor() {
         /**
          * SendMessageProcessor

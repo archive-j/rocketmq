@@ -20,6 +20,9 @@ import java.util.List;
 import org.apache.rocketmq.common.message.MessageQueue;
 
 /**
+ * todo 需要重点关注,这个一般可以作为面试题
+ *    考点也就是 负载均衡的策略
+ *    一般而言 负载均衡的算法有哪些: 平均,平均环,等 不需要背诵, 当不记得全貌的时候 可以说出自己的理解。
  * Strategy Algorithm for message allocating between consumers
  */
 public interface AllocateMessageQueueStrategy {
