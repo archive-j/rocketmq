@@ -264,13 +264,65 @@ public class IndexFile {
         return result;
     }
 
+    // 批量查询对应key中的索引信息.
+    // 使用#phyOffsets变量透出, 这部分本来可以使用返回值的. 使用共享变量可以减少list的创建以及多list合并情况。, maxNum表示当前查询的消息最大个数
+    // begin和end 表示查询索引的时间范围. 索引有效时间根据 index存储的索引行内容diffTime记录, 该记录使用的是 相对于index的beginTime的时间.
+    // 然后就是查询方式是按照hash的方式查询的
+    // 当出现了hash一样的情况下, 也将数据返回, 目前需要做的是粗略的定位, 不需要做精准定位
+    //
+    //  hash_slot[1]=content0_index => hash_slot[1]=content1_index => hash_slot[1]=content2_index => hash_slot[1]=content2_index
+    //  ===>hash_slot[1]=content3_index===>hash_slot[1]=content4_index===>hash_slot[1]=content5_index===>hash_slot[1]=content6_index
+    //  ===>hash_slot[1]=content7_index
+    //
+    //         |-------------[hash_slot[1]]--------------------------------------|
+    //         | 索引行,行标index_count|内容   |hash值|上一个索引行,航标   |diff_time
+    //         |content0_index|content0_data|keyHash_0|-1            |  01 |
+    //         |content1_index|content1_data|keyHash_1|content0_index|  10 |
+    //         |content2_index|content2_data|keyHash_2|content1_index|  20 |
+    //         |content3_index|content3_data|keyHash_3|content2_index|  30 |
+    //         |content4_index|content4_data|keyHash_1|content3_index|  40 |
+    //         |content5_index|content5_data|keyHash_2|content4_index|  50 |
+    //         |content6_index|content6_data|keyHash_3|content5_index|  60 |
+    //         |content7_index|content7_data|keyHash_1|content6_index|  70 |
+    //
+    //
+    // 按照图中所给 其中按照头插法, 最终记录在索引头的hash_slot[1]为content7_index的行号
+    // 其中数据按照 keyHash_0,keyHash_1,keyHash_2,keyHash_3 真实hash值存储在索引行中。
+    //
+    // 在需要查询具体数据的时候
+    //  1. 查询出具体的slot_index找到索引行.
+    //  2. 按照索引行给出的单链表, 将逐个遍历下去, 找到和搜索key_hash相等的索引行(☆☆☆☆☆☆☆)
+    //  2.1 按照索引行给出数据查找到后不会立即返回, 会继续按照索引行的链表方向查找到最底部.
+    //  2.2 虽说上述描述的会按照链表的方向一直查询下去, 但是当查询到time不符合了就会停止搜索====>这里面有一个很重要的概念为。
+    //  数据是按照头插法插入的, 也就是说最顶部的为最新数据, 只要其中一项不符合时间范围, 之后的一定会不符合时间范围.
+    //  即 头插法不仅仅是index坐标的倒叙, 更是插入时间的倒叙方式. 那么按照头插法是很合理的要求了。
+    //     如果按照尾插法===>虽然可以解决hash冲突的情况,但是使用时间搜索的时候. 就必须先遍历久远的数据再遍历新数据.
+    //     极端场景下查询的数据范围更加的靠后, 并且该链路很长, 就花费了很多无用功。=====> 那么这个是经验值吗？
+    //  所以 这部分可以使用数学中的【归纳法】对后续的数据进行假设,得出结论
+    //  3.将符合条件的物理地址填充到 集合中返回
+    //
+    // 按照上述步骤
+    //   查询一个 key 其keyHash 为 keyHash_1 .那么就会进行遍历, 假设时间查询截止到 100~50
+    //   从 content7_index开始. 因为这个值是存放在slot_index[1]中的. 符合条件添加[keyHash]符合,[diffTime]符合
+    //   遍历 content6_index.  不符合条件,[keyHash]不符合,[diffTime]符合
+    //   遍历 content5_index.  不符合条件,[keyHash]不符合,[diffTime]符合
+    //   遍历 content4_index.  不符合条件,[keyHash]符合,[diffTime]符合, 因为时间不符合
+    //   归纳假设, 因为content4_index中时间不符合, 又因为content4_index中事件均大于 content3,content2,content1,content0,所以下方不需要进行遍历
+    //
+    // 根据上述步骤 可以查询到的有效数据为 content7_index中的物理地址了。
+    //
     public void selectPhyOffset(final List<Long> phyOffsets, final String key, final int maxNum,
         final long begin, final long end, boolean lock) {
+        // 这里使用hold这类的情况, 其实是为了做引用标记, 防止在插入/查新index数据过程中, 数据被清除了.
         if (this.mappedFile.hold()) {
             int keyHash = indexKeyHashMethod(key);
             int slotPos = keyHash % this.hashSlotNum;
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
-
+            // 比较疑惑的一个情况是, 在putKey中也看到了fileLock的存在, 但是都被注释了. 这个是为什么呢?
+            // 并发写的话不是需要持有文件锁才能对文件数据更好操作吗???????
+            // 盲猜！！！以前的设计是不处理hash冲突的. 只要有hash冲突了,
+            //     那么就进行覆盖,所以这部分需要fileLock锁定某一行的绝对地址,之所以是绝对地址的起始部分.是因为更早期就固定了索引行的大小
+            // 使用hash,冲突使用hash链表的时候 就更改了这一写法？？？？？？
             FileLock fileLock = null;
             try {
                 if (lock) {
@@ -292,6 +344,7 @@ public class IndexFile {
                             break;
                         }
 
+                        // 解析捞数据的过程====>按照index索引行协议来就行了
                         int absIndexPos =
                             IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                                 + nextIndexToRead * indexSize;
