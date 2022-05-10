@@ -268,6 +268,11 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 return;
             }
         } else {
+            // 如果是需要按照有序的方式获取消息. 则将processQueue锁住.有疑问. 这样的话processQueue是不按照queue_id的方式锁的.
+            //  但是整个进程只有一个线程在获取消息. blockQueue.take 只会一个一个数据处理. 也就是说 当前数据是只有一个数据在使用的....那么为啥需要锁住呢？
+            // 锁住其实是因为这个地方在做 负载均衡. 既然在做负载均衡, 那么就稍等一会儿处理数据. 那么为什么并发状态下不用呢？
+            // 仔细观察. 这个地方的氛围了 previouslyLock和lock. 这两个是有区分的.
+            // 存在lock是在重分配. previousLock 是在做顺序获取的前置准备
             if (processQueue.isLocked()) {
                 if (!pullRequest.isPreviouslyLocked()) {
                     long offset = -1L;
@@ -309,6 +314,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             @Override
             public void onSuccess(PullResult pullResult) {
                 if (pullResult != null) {
+                    // 找到数据了. 需要处理机械数据. 对于messageQueue而言. 这一步是为了什么呢?
                     pullResult = DefaultMQPushConsumerImpl.this.pullAPIWrapper.processPullResult(pullRequest.getMessageQueue(), pullResult,
                         subscriptionData);
 
@@ -322,6 +328,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
                             long firstMsgOffset = Long.MAX_VALUE;
                             if (pullResult.getMsgFoundList() == null || pullResult.getMsgFoundList().isEmpty()) {
+                                // 找到空数据
                                 DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
                             } else {
                                 firstMsgOffset = pullResult.getMsgFoundList().get(0).getQueueOffset();
@@ -330,6 +337,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                     pullRequest.getMessageQueue().getTopic(), pullResult.getMsgFoundList().size());
 
                                 boolean dispatchToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
+                                // 提交消费服务. 这个消费服务需要区分是有序还是并发的
                                 DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
                                     pullResult.getMsgFoundList(),
                                     processQueue,
@@ -1060,6 +1068,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
         Properties prop = MixAll.object2Properties(this.defaultMQPushConsumer);
 
+        // 如果是要求请求的数据是有序的. 则传递一个有序标记给broker. 让broker去处理有序内容
         prop.put(ConsumerRunningInfo.PROP_CONSUME_ORDERLY, String.valueOf(this.consumeOrderly));
         prop.put(ConsumerRunningInfo.PROP_THREADPOOL_CORE_SIZE, String.valueOf(this.consumeMessageService.getCorePoolSize()));
         prop.put(ConsumerRunningInfo.PROP_CONSUMER_START_TIMESTAMP, String.valueOf(this.consumerStartTimestamp));

@@ -67,6 +67,7 @@ public class ConsumeQueue {
 
         this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null);
 
+        // 存储进consumerQueue中的数据.
         this.byteBufferIndex = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
 
         if (defaultMessageStore.getMessageStoreConfig().isEnableConsumeQueueExt()) {
@@ -403,7 +404,8 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
-            // 将消费队列存储起来
+            // 将消费队列存储起来/////// 每次消息来都进行存储？？？？这样不会导致很多数据吗？？？？？双份数据.
+            // consumerQueue 将会有很多数据
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             if (result) {
@@ -489,15 +491,17 @@ public class ConsumeQueue {
             return true;
         }
 
+        // 每次添加post时, 需要对缓存中的数据进行清空
         this.byteBufferIndex.flip();
-        this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
-        // 文件的偏移量====>一般是文件的名字
-        this.byteBufferIndex.putLong(offset);
-        this.byteBufferIndex.putInt(size);
-        this.byteBufferIndex.putLong(tagsCode);
+        this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE); // 一个consumerQueue中存有20字节
+        // 文件的偏移量====>一般是文件的名字  consumer中 存储了 offset size以及 tagcode
+        this.byteBufferIndex.putLong(offset);// 8
+        this.byteBufferIndex.putInt(size); // 4
+        this.byteBufferIndex.putLong(tagsCode);// 8
         // 逻辑偏移量
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
 
+        // 从queue中获取一个文件. 这个文件可能不是这个topic_0
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
 

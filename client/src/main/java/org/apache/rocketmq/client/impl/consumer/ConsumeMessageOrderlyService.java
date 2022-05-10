@@ -209,6 +209,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
         final ProcessQueue processQueue,
         final MessageQueue messageQueue,
         final boolean dispathToConsume) {
+        // 对于有序消费. 只提交一次,换而言之就是只有一个线程去处理消息
         if (dispathToConsume) {
             ConsumeRequest consumeRequest = new ConsumeRequest(processQueue, messageQueue);
             this.consumeExecutor.submit(consumeRequest);
@@ -465,6 +466,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
 
                         List<MessageExt> msgs = this.processQueue.takeMessages(consumeBatchSize);
                         defaultMQPushConsumerImpl.resetRetryAndNamespace(msgs, defaultMQPushConsumer.getConsumerGroup());
+                        // 如果第空的数据. 那么不需要再处理了。
                         if (!msgs.isEmpty()) {
                             final ConsumeOrderlyContext context = new ConsumeOrderlyContext(this.messageQueue);
 

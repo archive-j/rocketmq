@@ -213,6 +213,7 @@ public class MQClientInstance {
         for (QueueData qd : qds) {
             if (PermName.isReadable(qd.getPerm())) {
                 for (int i = 0; i < qd.getReadQueueNums(); i++) {
+                    // 客户端从服务端获取了这个topic的messageQueue 信息.
                     MessageQueue mq = new MessageQueue(topic, qd.getBrokerName(), i);
                     mqList.add(mq);
                 }
