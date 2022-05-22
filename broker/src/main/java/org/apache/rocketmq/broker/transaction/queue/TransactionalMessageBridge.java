@@ -109,6 +109,7 @@ public class TransactionalMessageBridge {
         return getMessage(group, topic, queueId, offset, nums, sub);
     }
 
+    // 获取已经处理了的消息.半消息(half)分为已经处理和未处理等状态, 其中已经处理的消息将会存储在指定的一个 OP_HALF_TOPIC中 半消息存储在 HALF_TOPIC中
     public PullResult getOpMessage(int queueId, long offset, int nums) {
         String group = TransactionalMessageUtil.buildConsumerGroup();
         String topic = TransactionalMessageUtil.buildOpTopic();
@@ -201,6 +202,8 @@ public class TransactionalMessageBridge {
     }
 
     private MessageExtBrokerInner parseHalfMessageInner(MessageExtBrokerInner msgInner) {
+        // 内部半消息. 存储在固定的一个topic中 `RMQ_SYS_TRANS_HALF_TOPIC` 选择的queueId为0,按照这个设计 如果事物消息很多的话 全都是写入到一个queueId中
+        // 半消息中, 存储额度数据有 真实的topic,queueId,存储这个信息是因为. 需要依靠这个这个消息, 在check半消息后, 可以将消息真实插入进里面
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_TOPIC, msgInner.getTopic());
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_QUEUE_ID,
             String.valueOf(msgInner.getQueueId()));

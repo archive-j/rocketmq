@@ -40,10 +40,13 @@ public class ClientHousekeepingService implements ChannelEventListener {
 
     public void start() {
 
+        // 清理无效的连接. 不管是消费者还是发送者, 都会与broker进行心跳关联。
+        // broker在自身维持了一个 clientManager==>producerManager、consumerManager
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
                 try {
+                    // 定时清理无效数据 10s一次 保活信息
                     ClientHousekeepingService.this.scanExceptionChannel();
                 } catch (Throwable e) {
                     log.error("Error occurred when scan not active client channels.", e);

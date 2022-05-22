@@ -677,15 +677,17 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
         // 尝试获取topic信息. 如果没有获取到. 或者启动比较慢没有获取到(这个是因为 start()的情况下) topicPublishInfoTable会添加一个空白的topic信息
         TopicPublishInfo topicPublishInfo = this.topicPublishInfoTable.get(topic);
+        // 尝试使用topic获取路由信息
         if (null == topicPublishInfo || !topicPublishInfo.ok()) {
             // 模拟start的情况将空白的topic的信息创建一下
             this.topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
             // 主动调用获取topic的信息从broker中
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
+            // 将路由信息更新出来。可能获取不到.
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
         }
 
-        //
+        //如果获取不到信息则按照默认createTopic方式查询哪一个broker可以对该topic进行创建.
         if (topicPublishInfo.isHaveTopicRouterInfo() || topicPublishInfo.ok()) {
             return topicPublishInfo;
         } else {

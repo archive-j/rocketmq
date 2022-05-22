@@ -96,6 +96,7 @@ public class ClientRemotingProcessor extends AsyncNettyRequestProcessor implemen
         return false;
     }
 
+    // 处理远程的消息 CHECK_TRANSACTION_STATE
     public RemotingCommand checkTransactionState(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
         final CheckTransactionStateRequestHeader requestHeader =
@@ -111,8 +112,13 @@ public class ClientRemotingProcessor extends AsyncNettyRequestProcessor implemen
             if (null != transactionId && !"".equals(transactionId)) {
                 messageExt.setTransactionId(transactionId);
             }
+            // 从消息中获取监听的group. 
             final String group = messageExt.getProperty(MessageConst.PROPERTY_PRODUCER_GROUP);
             if (group != null) {
+                // 通过group 查找到具体的消息生产者的实例. 这个是借助了 mqClient实例在MQ中只有一个, 
+                // 不管是消息消费者还是生产者 都会在本地的jvm中注册一下-=---->即将生产者和消费者信息在本地进行缓存. 
+                // 本地只有一个mq的实例和服务端相连.====>那么问题来了,为什么这样做,这样做的好处是什么?
+                // 这么做的好处显而易见, 一个JVM实例只需要开启一个端口监听,不需要开启多个.复用了端口.
                 MQProducerInner producer = this.mqClientFactory.selectProducer(group);
                 if (producer != null) {
                     final String addr = RemotingHelper.parseChannelRemoteAddr(ctx.channel());

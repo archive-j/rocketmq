@@ -507,6 +507,7 @@ public class MQClientInstance {
         }
     }
 
+    // 更新或创建topic
     public boolean updateTopicRouteInfoFromNameServer(final String topic) {
         return updateTopicRouteInfoFromNameServer(topic, false, null);
     }
@@ -611,6 +612,7 @@ public class MQClientInstance {
                 try {
                     TopicRouteData topicRouteData;
                     if (isDefault && defaultMQProducer != null) {
+                        // 通过获取默认topic获取路由信息 创建topic信息。。。。。这个不能称之为默认`defaultTopic`而更应该称之为创建topic,createTopic
                         topicRouteData = this.mQClientAPIImpl.getDefaultTopicRouteInfoFromNameServer(defaultMQProducer.getCreateTopicKey(),
                             clientConfig.getMqClientApiTimeout());
                         if (topicRouteData != null) {
@@ -621,6 +623,7 @@ public class MQClientInstance {
                             }
                         }
                     } else {
+                        // 获取topic信息
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, clientConfig.getMqClientApiTimeout());
                     }
                     if (topicRouteData != null) {

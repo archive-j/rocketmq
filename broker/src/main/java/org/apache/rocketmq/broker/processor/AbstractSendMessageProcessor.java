@@ -180,6 +180,15 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
             return response;
         }
 
+        // 用户发送过来的消息. 当前没有在本地查询到. 那么检查携带的createTopic.是否需要在nameServer注册一下
+        //   这个流程主要是为了高可用.=====>非数据一致性。 broker支持创建topic操作.☆,
+        //      按照正常流程,用户的topic一定是从 nameServer中获得的.
+        //                 nameServer中的topic一定是从 broker中获取注册的
+        //          正常路径是不存在需要创建的topic信息 用户发送消息的过程中创建topic信息.这个
+        //   业务流程是,在nameserver没有查询到topic信息, 则
+        //         broker                     nameserver
+        //
+        //   sendMessage 和 replyMessage 主要是这两个命令.
         TopicConfig topicConfig =
             this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
@@ -193,12 +202,18 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
             }
 
             log.warn("the topic {} not exist, producer: {}", requestHeader.getTopic(), ctx.channel().remoteAddress());
+
+            // 用户发送消息的时候. 会携带topic以及默认defaultTopic给到服务端,这个只有在 开启了自动创建的情况下才可以这么做.
             topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageMethod(
                 requestHeader.getTopic(),
                 requestHeader.getDefaultTopic(),
                 RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
                 requestHeader.getDefaultTopicQueueNums(), topicSysFlag);
 
+            // 没有进行自动创建,但是申请的topic中含有[重试组] 标记那么稍后再试一下. 这个再试一下体现在 定时的同步中.
+            //    那么这个地方是否存在一个BUG 普通消息的topic 含有 重试标签呢？这样不也是会被创建吗？
+            //      为了解决这个BUG 认为是不值当的一件事====>那么这一块是否是一个约定俗成的？存在这样前缀的是特殊含义的非业务topic,
+            //      那么在后续的操作中会和正常topic存在不一样的处理? TODO Jonah 待定
             if (null == topicConfig) {
                 if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                     topicConfig =
