@@ -65,6 +65,7 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
 
             if (null != offsetOld) {
                 if (increaseOnly) {
+                    // 这个是新增的结果
                     MixAll.compareAndIncreaseOnly(offsetOld, offset);
                 } else {
                     offsetOld.set(offset);

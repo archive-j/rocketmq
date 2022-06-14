@@ -281,6 +281,7 @@ public class MQClientInstance {
             }
         }, 10, this.clientConfig.getPollNameServerInterval(), TimeUnit.MILLISECONDS);
 
+
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -294,6 +295,8 @@ public class MQClientInstance {
             }
         }, 1000, this.clientConfig.getHeartbeatBrokerInterval(), TimeUnit.MILLISECONDS);
 
+        // 定时将存储客户端的offset====>此处的策略有本地和集群, 使用本地会在本地{user_home}/.offset 中记录.
+        // 集群模式(remote)则定时将本地的全量上传到broker.
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
